@@ -11,6 +11,7 @@ export default function Sidebar() {
           <li><Link to="/booking">Booking</Link></li>
           <li><Link to="/payment">Payment</Link></li>
           <li><Link to="/maintenance">Maintenance</Link></li>
+          <li><Link to="/logout">Logout</Link></li>
         </ul>
       </nav>
     </aside>

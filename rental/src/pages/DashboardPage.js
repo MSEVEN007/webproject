@@ -6,9 +6,9 @@ import CardGrid from "../components/CardGrid";
 export default function DashboardPage() {
   return (
     <Dashboard>
-      <h2>Tenant Dashboard</h2>
+      <h2 className="dashboard-title">Tenant Dashboard</h2>
       <CardGrid />
-      {/* You can add recent activity or quick links below */}
+      {/* Add more dashboard components here if needed */}
     </Dashboard>
   );
 }

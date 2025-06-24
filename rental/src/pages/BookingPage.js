@@ -1,21 +1,46 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Swal from "sweetalert2";
 import "../App.css";
 import Dashboard from "../components/Dashboard";
 
 export default function BookingPagePage() {
-  const bookings = [
-    { id: 1, property: "Room A", date: "2025-07-01", status: "Pending" },
-    { id: 2, property: "Room B", date: "2025-07-10", status: "Paid" },
-  ];
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
-  const [payment, setPayment] = useState({
-    method: "",
-    amount: "",
-    reference: "",
-  });
+
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+
+    if (!token) {
+      setError("No access token found. Please login.");
+      setLoading(false);
+      return;
+    }
+
+    fetch("http://localhost:8000/booking/", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (res.status === 401) throw new Error("Unauthorized. Please login again.");
+        if (!res.ok) throw new Error("Failed to fetch bookings.");
+        return res.json();
+      })
+      .then((data) => {
+        setBookings(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
 
   const handleOpenModal = (booking) => {
     setSelectedBooking(booking);
@@ -24,24 +49,62 @@ export default function BookingPagePage() {
 
   const handleCloseModal = () => {
     setShowModal(false);
-    setPayment({ method: "", amount: "", reference: "" });
+    setSelectedBooking(null);
   };
 
-  const handlePaymentChange = (e) => {
-    setPayment({ ...payment, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmitPayment = (e) => {
+  const handleSubmitPayment = async (e) => {
     e.preventDefault();
-    handleCloseModal();
 
-    Swal.fire({
-      icon: "success",
-      title: "Payment Successful!",
-      text: `Payment for ${selectedBooking.property} completed.`,
-      confirmButtonColor: "#007bff",
-    });
+    const token = localStorage.getItem("accessToken");
+
+    if (!token) {
+      Swal.fire("Error", "No access token found. Please login.", "error");
+      return;
+    }
+
+    if (!selectedBooking || !selectedBooking.id || !selectedBooking.price || !selectedBooking.tenant) {
+      Swal.fire("Error", "Booking details are incomplete. Cannot proceed.", "error");
+      return;
+    }
+
+    const payload = {
+      booking: selectedBooking.id,
+      tenant: selectedBooking.tenant,
+      amount: selectedBooking.price,
+      date: new Date().toISOString().split("T")[0],
+      status: "Pending",
+    };
+
+    try {
+      const response = await fetch("http://localhost:8000/rentpayment/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to submit payment.");
+      }
+
+      Swal.fire({
+        icon: "success",
+        title: "Payment Submitted!",
+        text: `Payment for Room ${selectedBooking.property} has been recorded.`,
+        confirmButtonColor: "#007bff",
+      });
+
+      handleCloseModal();
+    } catch (error) {
+      Swal.fire("Error", error.message || "Failed to make payment.", "error");
+    }
   };
+
+  if (loading) return <Dashboard><p>Loading bookings...</p></Dashboard>;
+  if (error) return <Dashboard><p>Error: {error}</p></Dashboard>;
 
   return (
     <Dashboard>
@@ -49,70 +112,65 @@ export default function BookingPagePage() {
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ backgroundColor: "#007bff", color: "white" }}>
-            <th style={cell}>Property</th>
-            <th style={cell}>Date</th>
+            <th style={cell}>Property ID</th>
+            <th style={cell}>Start Date</th>
+            <th style={cell}>End Date</th>
+            <th style={cell}>Price</th>
             <th style={cell}>Status</th>
             <th style={cell}>Action</th>
           </tr>
         </thead>
         <tbody>
-          {bookings.map((b) => (
-            <tr key={b.id} style={{ borderBottom: "1px solid #ccc" }}>
-              <td style={cell}>{b.property}</td>
-              <td style={cell}>{b.date}</td>
-              <td style={cell}>{b.status}</td>
-              <td style={cell}>
-                {b.status === "Pending" ? (
-                  <button onClick={() => handleOpenModal(b)} style={btn}>
-                    Make Payment
-                  </button>
-                ) : (
-                  "✓ Paid"
-                )}
+          {bookings.length === 0 ? (
+            <tr>
+              <td colSpan="6" style={{ padding: "12px", textAlign: "center" }}>
+                No bookings found.
               </td>
             </tr>
-          ))}
+          ) : (
+            bookings.map((b) => (
+              <tr key={b.id} style={{ borderBottom: "1px solid #ccc" }}>
+                <td style={cell}>{b.property}</td>
+                <td style={cell}>{b.start_date}</td>
+                <td style={cell}>{b.end_date}</td>
+                <td style={cell}>{b.price}</td>
+                <td style={cell}>{b.status}</td>
+                <td style={cell}>
+                  {b.status.toLowerCase() === "pending" ? (
+                    <button onClick={() => handleOpenModal(b)} style={btn}>
+                      Make Payment
+                    </button>
+                  ) : (
+                    "✓ Paid"
+                  )}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
 
       {/* Payment Modal */}
-      {showModal && (
+      {showModal && selectedBooking && (
         <div style={overlay}>
           <div style={modal}>
-            <h3>Payment for {selectedBooking.property}</h3>
+            <h3>Payment for Room {selectedBooking.property}</h3>
             <form onSubmit={handleSubmitPayment}>
               <input
-                type="text"
-                name="method"
-                placeholder="Payment Method (e.g., M-Pesa)"
-                value={payment.method}
-                onChange={handlePaymentChange}
-                required
-                style={input}
-              />
-              <input
                 type="number"
-                name="amount"
-                placeholder="Amount"
-                value={payment.amount}
-                onChange={handlePaymentChange}
-                required
-                style={input}
+                value={selectedBooking.price}
+                readOnly
+                style={{ ...input, backgroundColor: "#f1f1f1" }}
               />
               <input
                 type="text"
-                name="reference"
-                placeholder="Transaction Reference"
-                value={payment.reference}
-                onChange={handlePaymentChange}
-                required
-                style={input}
+                value={new Date().toISOString().split("T")[0]}
+                readOnly
+                style={{ ...input, backgroundColor: "#f1f1f1" }}
               />
               <div style={{ marginTop: "1rem" }}>
                 <button type="submit" style={btn}>Submit</button>
-                <button type="button" onClick={handleCloseModal} style={cancel}>
-                  Cancel
-                </button>
+                <button type="button" onClick={handleCloseModal} style={cancel}>Cancel</button>
               </div>
             </form>
           </div>
@@ -122,14 +180,14 @@ export default function BookingPagePage() {
   );
 }
 
-// Style variables
+// Styles
 const cell = {
   padding: "12px",
   textAlign: "left",
 };
 
 const btn = {
-  backgroundColor: "#rsrcb3",
+  backgroundColor: "#007bff",
   color: "#fff",
   padding: "6px 12px",
   border: "none",

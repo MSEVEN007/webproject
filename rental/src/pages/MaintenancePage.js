@@ -1,57 +1,130 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "../App.css";
 import Dashboard from "../components/Dashboard";
 import Swal from "sweetalert2";
 
 export default function MaintenancePage() {
   const [complaints, setComplaints] = useState([]);
+  const [properties, setProperties] = useState([]);
   const [form, setForm] = useState({
-    room: "",
-    issue: "",
-    status: "Pending",
+    property: "", // property id
+    description: "",
+    status: "Requested",
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fetch properties & complaints on mount
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setError("No access token found. Please login.");
+      setLoading(false);
+      return;
+    }
+
+    // Fetch properties
+    fetch("http://localhost:8000/property/", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch properties.");
+        return res.json();
+      })
+      .then((data) => setProperties(data))
+      .catch((err) => setError(err.message));
+
+    // Fetch complaints
+    fetch("http://localhost:8000/maintenance/", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch complaints.");
+        return res.json();
+      })
+      .then((data) => setComplaints(data))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const newComplaint = { ...form, id: Date.now() };
-    setComplaints([...complaints, newComplaint]);
 
-    Swal.fire({
-      icon: "success",
-      title: "Complaint Submitted!",
-      text: "We will address your issue shortly.",
-      confirmButtonColor: "#007bff",
-    });
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      Swal.fire("Error", "Please login to submit complaints.", "error");
+      return;
+    }
+    if (!form.property || !form.description) {
+      Swal.fire("Error", "Please select a room and describe the issue.", "error");
+      return;
+    }
 
-    setForm({ room: "", issue: "", status: "Pending" });
+    const payload = {
+      property: parseInt(form.property),
+      description: form.description,
+      status: "Requested",
+    };
+
+    try {
+      const res = await fetch("http://localhost:8000/maintenance/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to submit complaint.");
+      }
+
+      const newComplaint = await res.json();
+      setComplaints((prev) => [...prev, newComplaint]);
+
+      Swal.fire("Success", "Complaint submitted!", "success");
+      setForm({ property: "", description: "", status: "Requested" });
+    } catch (error) {
+      Swal.fire("Error", error.message, "error");
+    }
   };
+
+  if (loading) return <Dashboard><p>Loading...</p></Dashboard>;
+  if (error) return <Dashboard><p>Error: {error}</p></Dashboard>;
 
   return (
     <Dashboard>
       <h2>Room Maintenance Complaints</h2>
 
-      {/* Complaint Form */}
       <form onSubmit={handleSubmit} style={{ marginBottom: "2rem" }}>
         <select
-          name="room"
-          value={form.room}
+          name="property"
+          value={form.property}
           onChange={handleChange}
           required
           style={input}
         >
           <option value="">Select Room</option>
-          <option value="Room A">Room A</option>
-          <option value="Room B">Room B</option>
-          <option value="Room C">Room C</option>
+          {properties.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.room_no} {/* Display room_no */}
+            </option>
+          ))}
         </select>
 
         <textarea
-          name="issue"
-          value={form.issue}
+          name="description"
+          value={form.description}
           onChange={handleChange}
           placeholder="Describe the issue"
           required
@@ -61,7 +134,6 @@ export default function MaintenancePage() {
         <button type="submit" style={btn}>Send Complaint</button>
       </form>
 
-      {/* Complaints Table */}
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ backgroundColor: "#007bff", color: "white" }}>
@@ -73,8 +145,8 @@ export default function MaintenancePage() {
         <tbody>
           {complaints.map((comp) => (
             <tr key={comp.id} style={{ borderBottom: "1px solid #ccc" }}>
-              <td style={cell}>{comp.room}</td>
-              <td style={cell}>{comp.issue}</td>
+              <td style={cell}>{comp.property?.room_no || `Room ${comp.property}`}</td>
+              <td style={cell}>{comp.description}</td>
               <td style={cell}>
                 <span style={statusStyle(comp.status)}>{comp.status}</span>
               </td>
@@ -111,7 +183,7 @@ const cell = {
 
 const statusStyle = (status) => ({
   color:
-    status === "Complete"
+    status === "Completed"
       ? "green"
       : status === "In Progress"
       ? "orange"
